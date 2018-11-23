@@ -33,7 +33,6 @@ export default class Zeroconf extends EventEmitter {
 
       this._services[name] = service
       this.emit('found', name)
-      this.emit('update')
     })
 
     this._dListeners.remove = DeviceEventEmitter.addListener('RNZeroconfRemove', service => {
@@ -43,7 +42,6 @@ export default class Zeroconf extends EventEmitter {
       delete this._services[name]
 
       this.emit('remove', name)
-      this.emit('update')
     })
 
     this._dListeners.resolved = DeviceEventEmitter.addListener('RNZeroconfResolved', service => {
@@ -51,9 +49,14 @@ export default class Zeroconf extends EventEmitter {
 
       this._services[service.name] = service
       this.emit('resolved', service)
-      this.emit('update')
     })
 
+    this._dListeners.update = DeviceEventEmitter.addListener('RNZeroconfUpdate', service => {
+      if (!service || !service.name) { return }
+
+      this._services[service.name].txt = service.txt
+      this.emit('update', this._services[service.name])
+    })
   }
 
   /**
@@ -77,7 +80,6 @@ export default class Zeroconf extends EventEmitter {
    */
   scan (type = 'http', protocol = 'tcp', domain = 'local.') {
     this._services = {}
-    this.emit('update')
     RNZeroconf.scan(type, protocol, domain)
   }
 
