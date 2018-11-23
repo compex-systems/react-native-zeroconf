@@ -74,6 +74,13 @@ RCT_EXPORT_METHOD(stop)
     [self.bridge.eventDispatcher sendDeviceEventWithName:@"RNZeroconfRemove" body:serviceInfo];
 }
 
+// When a service is updated.
+- (void)netService:(NSNetService *)sender
+didUpdateTXTRecordData:(NSData *)data
+{
+    [self.bridge.eventDispatcher sendDeviceEventWithName:@"RNZeroconfUpdate" body:data];
+}
+
 // When the search fails.
 - (void) netServiceBrowser:(NSNetServiceBrowser *)browser
               didNotSearch:(NSDictionary *)errorDict
