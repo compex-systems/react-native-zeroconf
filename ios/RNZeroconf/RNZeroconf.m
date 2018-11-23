@@ -70,15 +70,30 @@ RCT_EXPORT_METHOD(stop)
       return;
     }
 
+    [service stopMonitoring];
+
     NSDictionary *serviceInfo = [RNNetServiceSerializer serializeServiceToDictionary:service resolved:NO];
     [self.bridge.eventDispatcher sendDeviceEventWithName:@"RNZeroconfRemove" body:serviceInfo];
 }
 
 // When a service is updated.
-- (void)netService:(NSNetService *)sender
-didUpdateTXTRecordData:(NSData *)data
+- (void)netService:(NSNetService *)sender didUpdateTXTRecordData:(NSData *)data
 {
-    [self.bridge.eventDispatcher sendDeviceEventWithName:@"RNZeroconfUpdate" body:data];
+    NSMutableDictionary *serviceInfo = [[NSMutableDictionary alloc] init];
+    serviceInfo[@"name"] = sender.name;
+
+    NSDictionary<NSString *, NSData *> *txtRecordDict = [NSNetService dictionaryFromTXTRecordData:data];
+
+    NSMutableDictionary *dict = [[NSMutableDictionary alloc] init];
+    for (NSString *key in txtRecordDict) {
+        dict[key] = [[NSString alloc]
+                     initWithData:txtRecordDict[key]
+                     encoding:NSASCIIStringEncoding];
+    }
+
+    serviceInfo[@"txt"] = dict;
+
+    [self.bridge.eventDispatcher sendDeviceEventWithName:@"RNZeroconfUpdate" body:serviceInfo];
 }
 
 // When the search fails.
@@ -108,8 +123,7 @@ didUpdateTXTRecordData:(NSData *)data
     NSDictionary *serviceInfo = [RNNetServiceSerializer serializeServiceToDictionary:sender resolved:YES];
     [self.bridge.eventDispatcher sendDeviceEventWithName:@"RNZeroconfResolved" body:serviceInfo];
 
-    sender.delegate = nil;
-    [self.resolvingServices removeObjectForKey:sender.name];
+    [sender startMonitoring];
 }
 
 // When the service has failed to resolve it's network data (IP addresses, etc)
