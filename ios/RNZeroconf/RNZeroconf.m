@@ -12,6 +12,7 @@
 @interface RNZeroconf ()
 
 @property (nonatomic, strong, readonly) NSMutableDictionary *resolvingServices;
+@property (nonatomic, strong, readonly) NSMutableDictionary *resolvingTimers;
 
 @end
 
@@ -31,6 +32,7 @@ RCT_EXPORT_METHOD(stop)
 {
     [self.browser stop];
     [self.resolvingServices removeAllObjects];
+    [self.resolvingTimers removeAllObjects];
 }
 
 + (BOOL)requiresMainQueueSetup
@@ -57,8 +59,9 @@ RCT_EXPORT_METHOD(stop)
     // source: http://stackoverflow.com/a/16130535/2715
     self.resolvingServices[service.name] = service;
 
-    service.delegate = self;
-    [service resolveWithTimeout:5.0];
+    [self resolveService:service withDebounce:0.0];
+
+    [service startMonitoring];
 }
 
 // When a service is removed.
@@ -79,8 +82,7 @@ RCT_EXPORT_METHOD(stop)
 // When a service is updated.
 - (void)netService:(NSNetService *)sender didUpdateTXTRecordData:(NSData *)data
 {
-    NSMutableDictionary *serviceInfo = [[NSMutableDictionary alloc] init];
-    serviceInfo[@"name"] = sender.name;
+    NSMutableDictionary *serviceInfo = [[RNNetServiceSerializer serializeServiceToDictionary:sender resolved:YES] mutableCopy];
 
     NSDictionary<NSString *, NSData *> *txtRecordDict = [NSNetService dictionaryFromTXTRecordData:data];
 
@@ -94,13 +96,38 @@ RCT_EXPORT_METHOD(stop)
     serviceInfo[@"txt"] = dict;
 
     [self.bridge.eventDispatcher sendDeviceEventWithName:@"RNZeroconfUpdate" body:serviceInfo];
+
+    if (sender.addresses.count > 0) {
+        // resolve service in case the IP address changed
+        [self resolveService:sender withDebounce:3.0];
+    }
+}
+
+- (void)resolveService:(NSNetService *)service withDebounce:(NSTimeInterval)timeout
+{
+    if (self.resolvingTimers[service.name]) {
+        [self.resolvingTimers[service.name] invalidate];
+    }
+
+    self.resolvingTimers[service.name] = [NSTimer scheduledTimerWithTimeInterval:timeout
+                                                                          target:self
+                                                                        selector:@selector(resolveServiceWithTimer:)
+                                                                        userInfo:service
+                                                                         repeats:NO];
+}
+
+- (void)resolveServiceWithTimer:(NSTimer*)timer
+{
+    NSNetService *service = (NSNetService *)[timer userInfo];
+    service.delegate = self;
+    [service resolveWithTimeout:5.0];
 }
 
 // When the search fails.
 - (void) netServiceBrowser:(NSNetServiceBrowser *)browser
               didNotSearch:(NSDictionary *)errorDict
 {
-    [self reportError:errorDict];
+    [self reportError:errorDict withMessage:@"didNotSearch"];
 }
 
 // When the search stops.
@@ -122,18 +149,20 @@ RCT_EXPORT_METHOD(stop)
 {
     NSDictionary *serviceInfo = [RNNetServiceSerializer serializeServiceToDictionary:sender resolved:YES];
     [self.bridge.eventDispatcher sendDeviceEventWithName:@"RNZeroconfResolved" body:serviceInfo];
-
-    [sender startMonitoring];
 }
 
 // When the service has failed to resolve it's network data (IP addresses, etc)
 - (void) netService:(NSNetService *)sender
       didNotResolve:(NSDictionary *)errorDict
 {
-    [self reportError:errorDict];
+    [self reportError:errorDict withMessage:@"didNotResolve"];
 
-    sender.delegate = nil;
-    [self.resolvingServices removeObjectForKey:sender.name];
+    // Remove service if it has not resolved before
+    if ([[self.resolvingServices[sender.name] addresses] count] == 0) {
+        sender.delegate = nil;
+        [self.resolvingServices removeObjectForKey:sender.name];
+        [self.resolvingTimers removeObjectForKey:sender.name];
+    }
 }
 
 #pragma mark - Class methods
@@ -144,6 +173,7 @@ RCT_EXPORT_METHOD(stop)
 
     if (self) {
         _resolvingServices = [[NSMutableDictionary alloc] init];
+        _resolvingTimers = [[NSMutableDictionary alloc] init];
         _browser = [[NSNetServiceBrowser alloc] init];
         [_browser setDelegate:self];
     }
@@ -151,13 +181,9 @@ RCT_EXPORT_METHOD(stop)
     return self;
 }
 
-- (void) reportError:(NSDictionary *)errorDict
+- (void) reportError:(NSDictionary *)errorDict withMessage:(NSString *)message
 {
-    for (int a = 0; a < errorDict.count; ++a) {
-        NSString *key = [[errorDict allKeys] objectAtIndex:a];
-        NSString *val = [errorDict objectForKey:key];
-        [self.bridge.eventDispatcher sendDeviceEventWithName:@"RNZeroconfError" body:val];
-    }
+    [self.bridge.eventDispatcher sendDeviceEventWithName:@"RNZeroconfError" body:message];
 }
 
 @end
