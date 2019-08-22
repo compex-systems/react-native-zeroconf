@@ -52,7 +52,7 @@ export default class Zeroconf extends EventEmitter {
     })
 
     this._dListeners.update = DeviceEventEmitter.addListener('RNZeroconfUpdate', service => {
-      if (!service || !service.name || !this._services[service.name].addresses) { return }
+      if (!service || !service.name || !this._services[service.name]) { return }
 
       this._services[service.name].txt = service.txt
       this.emit('update', this._services[service.name])
